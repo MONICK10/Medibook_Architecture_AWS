@@ -1,0 +1,671 @@
+<title>MediBook on AWS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one action per tab. Map on the left, "what is happening + new words" on the right; stacks on phones. Glossary at the bottom. */
+:root{
+  --bg:#eef3f5; --panel:#ffffff; --ink:#132029; --muted:#566874; --line:#c3d0d8;
+  --edge:#e4edf3; --region:#f6f9fa; --vpc:#e6f2ec; --subnet:#d8ebe1; --dbnet:#e3e7f5;
+  --node:#ffffff; --node-off:#e6eaed; --soft:#f3f7f9;
+  --req:#e07b14; --res:#14936a; --bad:#cf3b3b; --warn:#a86f00; --warn-bg:#fff4dc; --bad-bg:#fde8e8; --ok-bg:#e3f4ec;
+  --c-net:#2f6fb3; --c-comp:#c76a0e; --c-data:#0f8a83; --c-sec:#7a4fc2; --c-ops:#a1475f; --c-user:#43515b;
+  --focus:#2f6fb3;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0e1418; --panel:#151d22; --ink:#e2eaef; --muted:#93a4af; --line:#2d3b44;
+  --edge:#152029; --region:#121a1f; --vpc:#13241d; --subnet:#183026; --dbnet:#1b2033;
+  --node:#1a242b; --node-off:#10161a; --soft:#11191e;
+  --req:#f29a3c; --res:#3cc58f; --bad:#f06a6a; --warn:#e6b84a; --warn-bg:#2e2611; --bad-bg:#341719; --ok-bg:#12291f;
+  --c-net:#5d9be0; --c-comp:#e88f35; --c-data:#35b8b0; --c-sec:#a283e6; --c-ops:#d77890; --c-user:#8c9ba5;
+  --focus:#7fb3ee; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0e1418; --panel:#151d22; --ink:#e2eaef; --muted:#93a4af; --line:#2d3b44;
+  --edge:#152029; --region:#121a1f; --vpc:#13241d; --subnet:#183026; --dbnet:#1b2033;
+  --node:#1a242b; --node-off:#10161a; --soft:#11191e;
+  --req:#f29a3c; --res:#3cc58f; --bad:#f06a6a; --warn:#e6b84a; --warn-bg:#2e2611; --bad-bg:#341719; --ok-bg:#12291f;
+  --c-net:#5d9be0; --c-comp:#e88f35; --c-data:#35b8b0; --c-sec:#a283e6; --c-ops:#d77890; --c-user:#8c9ba5;
+  --focus:#7fb3ee; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--f-body); font-size:15.5px; line-height:1.55}
+.wrap{max-width:1500px; margin:0 auto; padding-inline:16px; padding-block:18px 48px}
+header h1{font-family:var(--f-display); font-size:clamp(1.6rem,3vw,2.2rem); line-height:1.1; margin:0 0 4px; text-wrap:balance}
+header p{margin:0; color:var(--muted); max-width:72ch}
+.app{display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:16px; margin-top:14px; align-items:start}
+@media (max-width:1100px){ .app{grid-template-columns:minmax(0,1fr)} }
+.card{background:var(--panel); border:1px solid var(--line); border-radius:12px}
+.stage{padding:12px; min-width:0}
+.tabs{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px}
+.tab{font:inherit; font-size:.9rem; border:1px solid var(--line); background:var(--bg); color:var(--ink); padding:7px 12px; border-radius:999px; cursor:pointer}
+.tab b{font-family:var(--f-mono); font-weight:600; margin-right:4px; opacity:.7}
+.tab[aria-selected="true"]{background:var(--ink); color:var(--panel); border-color:var(--ink); font-weight:700}
+.tab:hover{border-color:var(--muted)}
+.swipe{display:none; color:var(--muted); font-size:.85rem; margin:0 0 6px}
+@media (max-width:900px){ .swipe{display:block} }
+.svgwrap{overflow-x:auto; border-radius:10px; background:var(--bg)}
+svg#map{display:block; width:100%; min-width:900px; height:auto}
+.controls{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px}
+.btn{font:inherit; font-size:.92rem; font-weight:700; border:1px solid var(--line); background:var(--panel); color:var(--ink); padding:7px 14px; border-radius:8px; cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--req); border-color:var(--req); color:#fff}
+.btn:disabled{opacity:.45; cursor:default}
+button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
+.speed{display:flex; align-items:center; gap:6px; color:var(--muted); font-size:.88rem; margin-left:auto}
+.legend{display:flex; flex-wrap:wrap; gap:14px; color:var(--muted); font-size:.85rem; margin-top:8px}
+.legend i{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px}
+
+.side{display:flex; flex-direction:column; gap:16px; min-width:0}
+.narr{padding:16px}
+.eyebrow{font-size:.75rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:700}
+.narr h2{font-family:var(--f-display); font-size:1.3rem; line-height:1.2; margin:4px 0 8px; text-wrap:balance}
+.narr p{margin:0 0 8px}
+.wire{font-family:var(--f-mono); font-size:.8rem; background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:8px 10px; white-space:pre-wrap; word-break:break-word; margin-top:8px}
+.wire .lbl{display:block; font-family:var(--f-body); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:3px}
+.chip{display:inline-block; font-family:var(--f-body); font-size:.72rem; font-weight:700; padding:1px 8px; border-radius:999px; margin-left:6px; vertical-align:1px}
+.chip.ok{background:var(--ok-bg); color:var(--res)}
+.chip.bad{background:var(--bad-bg); color:var(--bad)}
+.note{border-radius:8px; padding:8px 10px; margin-top:8px; font-size:.92rem}
+.note.warn{background:var(--warn-bg); border:1px solid var(--warn)}
+.note.bad{background:var(--bad-bg); border:1px solid var(--bad)}
+.note.ok{background:var(--ok-bg); border:1px solid var(--res)}
+.narr .btn{margin-top:8px}
+.visual{margin-top:10px; border:1px dashed var(--line); border-radius:10px; padding:10px; background:var(--soft); font-size:.9rem}
+.visual .vt{font-weight:700; margin-bottom:6px}
+.flow{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:4px 0}
+.flow span{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-family:var(--f-mono); font-size:.78rem}
+.flow em{font-style:normal; color:var(--muted)}
+.flow .mach{background:var(--c-sec); color:#fff; border-color:var(--c-sec); font-family:var(--f-body); font-weight:700}
+.words{margin-top:12px; border-top:1px solid var(--line); padding-top:10px}
+.words h4{margin:0 0 6px; font-size:.75rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+.word{margin:0 0 8px}
+.word b{color:var(--c-net)}
+.word .ex{display:block; color:var(--muted); font-size:.88rem}
+
+.info{padding:16px}
+.info h3{font-family:var(--f-display); font-size:1.1rem; margin:2px 0 6px}
+.info dl{margin:0; display:grid; gap:4px}
+.info dt{font-size:.75rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-top:4px}
+.info dd{margin:0}
+
+.switches{padding:16px}
+.switches h3{font-family:var(--f-display); font-size:1.1rem; margin:0 0 2px}
+.switches .sub{color:var(--muted); font-size:.88rem; margin:0 0 6px}
+.row{display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--line)}
+.row .nm{flex:1; min-width:0}
+.row .nm b{display:block; font-size:.92rem}
+.row .nm span{display:block; color:var(--muted); font-size:.8rem}
+.dot{width:9px; height:9px; border-radius:50%; background:var(--res); flex:none}
+.row.off .dot{background:var(--bad)}
+.tg{font:inherit; font-size:.8rem; font-weight:700; border-radius:7px; padding:5px 10px; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--ink); min-width:62px}
+.row.off .tg{background:var(--res); border-color:var(--res); color:#fff}
+.linkbtn{font:inherit; font-size:.85rem; background:none; border:0; color:var(--focus); text-decoration:underline; cursor:pointer; padding:0}
+
+.gloss{margin-top:20px; padding:18px}
+.gloss h2{font-family:var(--f-display); font-size:1.4rem; margin:0 0 4px}
+.gloss > p{color:var(--muted); margin:0 0 12px}
+.ggrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px}
+.gcard{border:1px solid var(--line); border-radius:10px; padding:12px; background:var(--soft); min-width:0}
+.gcard h3{margin:0 0 4px; font-size:1rem}
+.gcard p{margin:0 0 6px; font-size:.92rem}
+.gcard .ex{color:var(--muted); font-size:.88rem; margin:0}
+
+/* SVG */
+.zone{fill:var(--edge); stroke:var(--line); stroke-dasharray:5 4}
+.region{fill:var(--region); stroke:var(--line)}
+.vpc{fill:var(--vpc); stroke:var(--c-data); stroke-opacity:.5}
+.subnet{fill:var(--subnet); stroke:none; opacity:.75}
+.dbnet{fill:var(--dbnet); stroke:none}
+.zl{font-family:var(--f-body); font-size:11px; font-weight:700; fill:var(--muted); letter-spacing:.06em; text-transform:uppercase}
+.zs{font-family:var(--f-body); font-size:10.5px; fill:var(--muted)}
+.wire-line{stroke:var(--line); stroke-width:1.6}
+.hop{stroke-width:3; stroke-linecap:round; stroke-dasharray:7 6; animation:dash .6s linear infinite}
+.hop.req{stroke:var(--req)} .hop.res{stroke:var(--res)} .hop.bad{stroke:var(--bad)}
+@keyframes dash{to{stroke-dashoffset:-13}}
+.packet{stroke:var(--panel); stroke-width:2.5}
+.packet.req{fill:var(--req)} .packet.res{fill:var(--res)} .packet.bad{fill:var(--bad)}
+.node{cursor:pointer}
+.node-box{fill:var(--node); stroke:var(--line); stroke-width:1.3}
+.node:hover .node-box{stroke:var(--muted)}
+.node.sel .node-box{stroke:var(--focus); stroke-width:2.5}
+.node.active .node-box{stroke:var(--req); stroke-width:2.5}
+.node.failed .node-box{stroke:var(--bad); stroke-width:3; fill:var(--bad-bg)}
+.node.off .node-box{fill:var(--node-off); stroke-dasharray:5 4}
+.node.off .ic{opacity:.35}
+.node.ghost{opacity:.4}
+.node.ghost .node-box{stroke-dasharray:4 4}
+.ic-net{fill:var(--c-net)} .ic-comp{fill:var(--c-comp)} .ic-data{fill:var(--c-data)} .ic-sec{fill:var(--c-sec)} .ic-ops{fill:var(--c-ops)} .ic-user{fill:var(--c-user)}
+.ic-t{font-family:var(--f-mono); font-size:9px; font-weight:600; fill:#fff}
+.n-name{font-family:var(--f-body); font-size:13.5px; font-weight:700; fill:var(--ink)}
+.n-role{font-family:var(--f-body); font-size:11px; fill:var(--muted)}
+.node.off .n-role{fill:var(--bad); font-weight:700; letter-spacing:.06em}
+.cpu-t{font-family:var(--f-mono); font-size:10px; fill:var(--muted)}
+.cpu-bg{fill:var(--line)} .cpu-fg{fill:var(--res)} .cpu-fg.hot{fill:var(--req)} .cpu-fg.max{fill:var(--bad)}
+@media (prefers-reduced-motion: reduce){ .hop{animation:none} }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>MediBook on AWS</h1>
+    <p>Ravi is a patient using MediBook on his phone. Pick what he does, press Play, and watch where his tap travels. Each step explains the new words. Then stop a service and play again to see what breaks.</p>
+  </header>
+
+  <div class="app">
+    <section class="card stage" aria-label="Architecture map">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <p class="swipe">Swipe the map sideways to see all of it.</p>
+      <div class="svgwrap"><svg id="map" viewBox="0 0 1080 400" role="img" aria-label="MediBook architecture on AWS"></svg></div>
+      <div class="controls">
+        <button class="btn primary" id="play">Play</button>
+        <button class="btn" id="back">Back</button>
+        <button class="btn" id="next">Next step</button>
+        <button class="btn" id="reset">Restart</button>
+        <label class="speed" for="speed">Speed <input type="range" id="speed" min="0.5" max="2" step="0.25" value="1"></label>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--req)"></i>Request going in</span>
+        <span><i style="background:var(--res)"></i>Answer coming back</span>
+        <span><i style="background:var(--bad)"></i>Stopped here</span>
+        <span>Click any box to learn what it is</span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card narr" id="narr" aria-live="polite"></div>
+      <div class="card info" id="info"></div>
+      <div class="card switches">
+        <h3>Start / stop services</h3>
+        <p class="sub">Only the services in this map. Stop one, then play again. <button class="linkbtn" id="allon">Start all</button></p>
+        <div id="sw"></div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="card gloss" aria-labelledby="gh">
+    <h2 id="gh">Words to know</h2>
+    <p>Every new word in the simulation, in plain English, with an everyday example.</p>
+    <div class="ggrid" id="ggrid"></div>
+  </section>
+</div>
+
+<script>
+const NS='http://www.w3.org/2000/svg';
+const W=140,H=54;
+
+/* ---------- glossary ---------- */
+const G={
+  request:{t:'Request and response',m:'A request is your phone asking for something. The response is the answer that comes back.',e:'Ravi taps "My appointments" (request). The list appears (response).'},
+  server:{t:'Server',m:'A computer that is always switched on and answers requests from many people.',e:'When you open Instagram, a server somewhere sends you the photos.'},
+  ip:{t:'IP address',m:'The number address of a computer on the internet, like 13.233.10.5. Computers find each other using these numbers.',e:'Like a house address. A courier needs the address, not just your name.'},
+  dns:{t:'DNS (Route 53)',m:'Turns a website name into its IP address. Route 53 is Amazon\'s DNS.',e:'Like your phone contacts. You tap "Amma", and the phone dials 98xxxxxx. People remember names; computers need numbers.'},
+  https:{t:'HTTPS',m:'A lock on everything travelling between your phone and the server. The S stands for secure.',e:'Without it, sending a password is like writing your ATM PIN on a postcard: the postman can read it. With HTTPS it goes in a sealed envelope only the server can open. Look for the lock icon in the browser address bar.'},
+  encrypt:{t:'Encrypt',m:'To scramble data so only the right receiver can unscramble it.',e:'"ClinicDemo#2026" becomes "9f a7 1c 44 e2…" on the way.'},
+  cdn:{t:'CDN (CloudFront)',m:'Copies of your website kept in many cities, so each person gets it from a city close to them. CloudFront is Amazon\'s CDN.',e:'MediBook\'s files are stored in Mumbai. A student in Chennai gets them from a copy in Chennai, so it loads faster because it travels a shorter distance.'},
+  cache:{t:'Cache (saved copy)',m:'A copy kept nearby so you do not have to fetch it from far away again.',e:'WhatsApp keeps photos in your gallery, so it does not download the same photo every time you open the chat.'},
+  region:{t:'Region',m:'A city where Amazon has big buildings full of computers. You choose where your app lives.',e:'We chose Mumbai (ap-south-1) because it is closest to our users.'},
+  bucket:{t:'S3 bucket',m:'S3 is AWS\'s file storage. A bucket is one storage box, like a folder in Google Drive.',e:'One bucket holds the website files. Another, private bucket holds patients\' reports.'},
+  vpc:{t:'VPC (private network)',m:'Our own private network inside AWS, with a wall around it. We decide what can come in.',e:'Like our college campus. There is a wall and a gate, and not everyone can walk in.'},
+  subnet:{t:'Subnet',m:'A smaller area inside the VPC. A public subnet can be reached from the internet. A private subnet cannot.',e:'Like blocks inside the campus. The main gate area is public: visitors are allowed. The exam cell is private: only staff can enter. Our database sits in a private subnet.'},
+  sg:{t:'Security group',m:'A guard at the door of a server or database, with a list of who may come in.',e:'The database\'s guard has one rule: "only our EC2 servers, only through door 5432". Anyone else is turned away.'},
+  port:{t:'Port',m:'A door number on a computer. One computer has many doors, each for a different job.',e:'Door 443 is for HTTPS websites. Door 5432 is for the PostgreSQL database.'},
+  lb:{t:'Load balancer',m:'Sends each visitor to a server that is free, so no single server gets overloaded.',e:'Like a hospital receptionist sending the next patient to whichever doctor is free.'},
+  health:{t:'Health check',m:'The load balancer asks every server "are you OK?" every 30 seconds. If one does not answer, it stops sending people there.',e:'The receptionist checks which doctors are in their rooms before sending patients.'},
+  ec2:{t:'EC2',m:'A computer you rent from AWS. It runs our backend code, the part of the app that follows the rules and talks to the database.',e:'Like your laptop running MediBook, except it never sleeps and never closes its lid.'},
+  db:{t:'Database (RDS)',m:'Where the app stores its data in tables. RDS means Amazon runs the database for us and takes backups.',e:'Like an Excel sheet. The appointments table has one row per booking: Ravi, Dr. Asha, 12 Oct, 10:30.'},
+  secret:{t:'Secret (Secrets Manager)',m:'A password the app itself needs, like the database password. Secrets Manager is a locker in AWS that keeps these.',e:'If you write the database password in your code and push it to GitHub, anyone can read it. With the locker, the code has no password inside it at all.'},
+  iam:{t:'IAM role',m:'A permission card given to a server. It says exactly what that server may do in AWS.',e:'Your college ID card opens the library but not the staff room. Our server\'s IAM role opens the reports bucket and the password locker, nothing else. Because the server has this card, no AWS password is written on it.'},
+  hash:{t:'Hash',m:'A one-way scramble. The same password always makes the same jumble, but you cannot turn the jumble back into the password.',e:'Like turning a mango into juice: easy one way, impossible to undo. We store only the jumble. Even if a hacker steals the database, they do not get anyone\'s password.'},
+  token:{t:'Token',m:'A digital pass the app gives you after you log in. Your phone shows it on every tap, so you do not send your password again and again. It expires after some time.',e:'Like a cinema ticket. You pay once at the counter (password), then just show the ticket at the door (token). It is valid only for that show (1 hour).'},
+  group:{t:'Role (patient, doctor, admin)',m:'Which kind of user you are. It decides what you are allowed to do.',e:'A patient can book appointments. Only a doctor can write prescriptions. Only an admin can add doctors.'},
+  log:{t:'Logs',m:'A diary the app writes about everything that happens.',e:'"10:02 Ravi logged in", "10:05 booking 241 created". When something breaks, you read the diary to find out why.'},
+  cloudwatch:{t:'CloudWatch',m:'AWS\'s CCTV and alarm system for your app. It keeps the logs, watches how busy servers are, and rings alarms.',e:'Alarm rule: "If CPU stays above 60% for 2 minutes, ring".'},
+  cpu:{t:'CPU',m:'The brain of a computer. CPU % shows how busy it is.',e:'CPU 20%: relaxed. CPU 95%: like one shopkeeper serving 30 customers at once. Things get slow, then stop.'},
+  autoscale:{t:'Auto Scaling',m:'Adds servers when the app is busy and removes them when it is quiet.',e:'Like a restaurant calling extra waiters for Sunday lunch and sending them home at 4 PM. You pay for the extra waiter only for those hours.'},
+  email:{t:'SES',m:'AWS\'s service for sending emails from an app.',e:'"Your appointment is confirmed" or "Your reset code is 482913".'},
+  presigned:{t:'Time-limited link',m:'A download link that works for only a few minutes, then dies.',e:'The doctor gets a link to Ravi\'s report that works for 5 minutes. If she forwards it tomorrow, it no longer opens.'}
+};
+
+/* ---------- services (boxes) ---------- */
+const BASE={
+  phone:{name:"Ravi's phone",role:'MediBook app',abbr:'APP',cat:'user',zone:'net'},
+  dns:{name:'Route 53',role:'name → address',abbr:'DNS',cat:'net',svc:'dns',zone:'edge'},
+  cf:{name:'CloudFront',role:'nearby copies',abbr:'CDN',cat:'net',svc:'cf',zone:'edge'},
+  alb:{name:'Load Balancer',role:'shares the users',abbr:'LB',cat:'net',svc:'alb',zone:'pub'},
+  ec2a:{name:'EC2-A',role:'server',abbr:'EC2',cat:'comp',svc:'ec2a',zone:'app',cpu:true},
+  ec2b:{name:'EC2-B',role:'server',abbr:'EC2',cat:'comp',svc:'ec2b',zone:'app',cpu:true},
+  ec2c:{name:'EC2-C',role:'extra server',abbr:'EC2',cat:'comp',svc:'ec2c',zone:'app',cpu:true},
+  asg:{name:'Auto Scaling',role:'adds servers',abbr:'AS',cat:'comp',svc:'asg',zone:'app'},
+  rds:{name:'RDS',role:'database',abbr:'DB',cat:'data',svc:'rds',zone:'db'},
+  s3web:{name:'S3 website',role:'website files',abbr:'S3',cat:'data',svc:'s3web',zone:'aws'},
+  cognito:{name:'Cognito',role:'login system',abbr:'ID',cat:'sec',svc:'cognito',zone:'aws'},
+  s3rep:{name:'S3 reports',role:'patient files',abbr:'S3',cat:'data',svc:'s3rep',zone:'aws'},
+  sm:{name:'Secrets Mgr',role:'password locker',abbr:'KEY',cat:'sec',svc:'sm',zone:'aws'},
+  ses:{name:'SES',role:'sends email',abbr:'@',cat:'ops',svc:'ses',zone:'aws'},
+  cw:{name:'CloudWatch',role:'logs + alarms',abbr:'CW',cat:'ops',svc:'cw',zone:'aws'},
+  iam:{name:'IAM role',role:'server\'s ID card',abbr:'IAM',cat:'sec',svc:'iam',zone:'aws'}
+};
+const SVCROWS={dns:['Route 53 (DNS)','Turns names into addresses'],https:['HTTPS','Locks data on the way'],cf:['CloudFront (CDN)','Copies near users'],alb:['Load Balancer','Sends users to a free server'],ec2a:['EC2-A','Server 1'],ec2b:['EC2-B','Server 2'],asg:['Auto Scaling','Adds servers when busy'],rds:['RDS','The database'],s3web:['S3 website','Website files'],s3rep:['S3 reports','Patient files'],cognito:['Cognito','Login system'],iam:['IAM role','Server\'s permission card'],sm:['Secrets Manager','Password locker'],ses:['SES','Sends emails'],cw:['CloudWatch','Logs and alarms']};
+
+const INFO={
+  phone:{t:"Ravi's phone",what:'Where everything starts. Every tap Ravi makes becomes a request that travels to AWS and back.',ex:'Tap "Book" → request goes out → "Booked!" comes back.'},
+  dns:{t:'Route 53 (DNS)',what:'Finds the number address (IP address) for the name medibook.example.',ex:'Like phone contacts: you tap a name, the phone dials the number.',off:'Nobody can find the app. Ravi sees "This site can\'t be reached".'},
+  https:{t:'HTTPS',what:'Locks the data before it leaves the phone. Only the server can unlock it.',ex:'A sealed envelope instead of a postcard.',off:'The app still works, but passwords travel as plain text. Anyone on the same WiFi can read them.'},
+  cf:{t:'CloudFront (CDN)',what:'Keeps copies of the website in many cities. Each user gets the copy closest to them. It is also the front gate for every request.',ex:'MediBook\'s files are in Mumbai. A student in Chennai gets the Chennai copy, which is faster.',off:'Every request travels all the way to Mumbai. It works, but it is slower for people far away.'},
+  alb:{t:'Load Balancer',what:'Sends each request to a server that is free and healthy.',ex:'A receptionist sending patients to whichever doctor is free.',off:'There is no way into the servers. Ravi sees "502 Bad Gateway".'},
+  ec2a:{t:'EC2 server',what:'A rented computer in AWS that runs MediBook\'s backend. It checks the rules and talks to the database.',ex:'Rule: "a patient can only see their own reports". The server checks this on every request.',off:'If one stops, the load balancer uses the other. If both stop, the app is down.'},
+  ec2c:{t:'EC2-C (extra server)',what:'Not running normally. Auto Scaling starts it only when the app is very busy.',ex:'An extra doctor called in just for the morning rush.'},
+  asg:{t:'Auto Scaling',what:'Adds servers when busy, removes them when quiet.',ex:'9 AM rush: adds EC2-C. 11 AM: removes it to save money.',off:'During a rush, the servers hit 100% and stop responding.'},
+  rds:{t:'RDS (database)',what:'Stores all data in tables: users, doctors, appointments. It lives in a private subnet, hidden from the internet.',ex:'A row: Ravi, Dr. Asha Rao, 12 Oct, 10:30.',off:'Nothing can be saved or read. Every action fails.'},
+  s3web:{t:'S3 (website files)',what:'A storage box holding the website itself: the pages, code and pictures.',ex:'index.html and app.js.',off:'There is no website to send. Ravi sees a blank page.'},
+  s3rep:{t:'S3 (reports)',what:'A private storage box for patients\' files.',ex:'Ravi\'s blood-test.pdf.',off:'Uploads fail. Old reports cannot be opened.'},
+  cognito:{t:'Cognito',what:'AWS\'s login system. It keeps passwords safely (as a hash), checks them, and gives out tokens.',ex:'Ravi logs in once and gets a token that works for 1 hour.',off:'Nobody can log in, sign up or reset a password.'},
+  sm:{t:'Secrets Manager',what:'A locker for the passwords the app itself needs, like the database password.',ex:'The server opens the locker by showing its IAM role (its ID card).',off:'The server cannot get the database password, so it cannot open the database.'},
+  ses:{t:'SES',what:'Sends emails from the app.',ex:'"Appointment confirmed" emails.',off:'Emails never arrive.'},
+  cw:{t:'CloudWatch',what:'Keeps the app\'s diary (logs), watches how busy the servers are, and rings alarms.',ex:'Alarm: "CPU above 60% for 2 minutes" → add a server.',off:'No diary and no alarms. Nobody notices when things go wrong.'},
+  iam:{t:'IAM role',what:'The server\'s ID card. It lists what the server is allowed to do in AWS.',ex:'Allowed: open the reports bucket and the password locker. Nothing else.',off:'AWS asks the server "who are you?". It has no card, so the answer is Access Denied.'}
+};
+INFO.ec2b=INFO.ec2a;
+
+const FAIL={
+  dns:'Route 53 is stopped. The phone asks "where is medibook.example?" and nobody answers. Ravi sees: This site can\'t be reached.',
+  s3web:'The website storage is stopped. CloudFront has no copy and nowhere to get one. Ravi sees a blank white page.',
+  alb:'The load balancer is stopped. It is the only way into the servers, so the request is refused. Ravi sees: 502 Bad Gateway.',
+  ec2none:'No server is running. The load balancer has nobody to send Ravi to. Ravi sees: 503 Service Unavailable.',
+  ec2a:'EC2-A was handling Ravi and it just stopped. Press Restart: the load balancer will choose a running server.',
+  ec2b:'EC2-B was handling Ravi and it just stopped. Press Restart: the load balancer will choose a running server.',
+  cognito:'Cognito is stopped. Nobody can check Ravi\'s password, so nobody can log in.',
+  rds:'The database is stopped. The server cannot save or read anything. Ravi sees: Something went wrong.',
+  s3rep:'The reports storage is stopped. The file has nowhere to go, so the upload fails.',
+  sm:'Secrets Manager is stopped. The server cannot get the database password, so it cannot open the database.',
+  ses:'SES is stopped. The reset code is never sent. Ravi keeps checking his inbox, and nothing comes.',
+  iam:'The server has no IAM role. AWS asks "who are you?", and the server has no ID card. Answer: Access Denied.',
+  cw:'CloudWatch is stopped. Nobody notices the servers are at 100%. No alarm rings, so no extra server is added. The app freezes.',
+  asg:'Auto Scaling is stopped. The alarm rings, but nobody adds a server. The servers stay at 100% and patients get errors.'
+};
+const WARN={
+  https:'<b>HTTPS is off.</b> This travels as plain text. Anyone on the same WiFi can read it. The scary part: the app still works, so nobody notices.',
+  cf:'<b>CloudFront is off,</b> so the phone goes straight to Mumbai. It still works, but it is slower for people far away, and there are no nearby copies.',
+  cw:'<b>CloudWatch is off,</b> so this diary entry is lost. If something breaks later, nobody will know why.',
+  ses:'<b>SES is off.</b> The booking is saved, but Ravi never gets the confirmation email.'
+};
+
+/* ---------- layouts: one map per action ---------- */
+const LAYOUTS={
+  open:{h:330,pos:{phone:[80,180],dns:[250,100],cf:[250,250],s3web:[520,250]},links:[['phone','dns'],['phone','cf'],['cf','s3web']]},
+  login:{h:480,pos:{phone:[80,240],cf:[250,240],alb:[460,240],ec2a:[625,180],ec2b:[625,300],rds:[790,240],cognito:[975,90],sm:[975,200],iam:[975,310],cw:[975,420]},links:[['phone','cf'],['cf','alb'],['alb','ec2a'],['alb','ec2b']]},
+  book:{h:420,pos:{phone:[80,210],cf:[250,210],alb:[460,210],ec2a:[625,150],ec2b:[625,270],rds:[790,330],ses:[975,130],cw:[975,270]},links:[['phone','cf'],['cf','alb'],['alb','ec2a'],['alb','ec2b']]},
+  upload:{h:420,pos:{phone:[80,210],cf:[250,210],alb:[460,210],ec2a:[625,150],ec2b:[625,270],rds:[790,330],s3rep:[975,130],iam:[975,270]},links:[['phone','cf'],['cf','alb'],['alb','ec2a'],['alb','ec2b']]},
+  forgot:{h:400,pos:{phone:[80,210],cf:[250,210],alb:[460,210],ec2a:[625,150],ec2b:[625,270],cognito:[975,130],ses:[975,280]},links:[['phone','cf'],['cf','alb'],['alb','ec2a'],['alb','ec2b']]},
+  rush:{h:590,pos:{phone:[80,285],cf:[250,285],alb:[460,285],ec2a:[625,145],ec2b:[625,265],ec2c:[625,385],asg:[625,505],cw:[975,325]},links:[['phone','cf'],['cf','alb'],['alb','ec2a'],['alb','ec2b'],['alb','ec2c'],['asg','ec2c']]},
+  whole:{h:720,pos:{phone:[80,320],dns:[250,160],cf:[250,340],alb:[460,320],ec2a:[625,160],ec2b:[625,290],ec2c:[625,420],asg:[625,550],rds:[790,430],s3web:[460,655],cognito:[975,90],s3rep:[975,200],sm:[975,310],ses:[975,420],cw:[975,530],iam:[975,640]},links:[['phone','dns'],['phone','cf'],['cf','alb'],['cf','s3web'],['alb','ec2a'],['alb','ec2b'],['alb','ec2c'],['asg','ec2c']]}
+};
+
+/* ---------- state ---------- */
+const on={}; Object.keys(SVCROWS).forEach(k=>on[k]=true); on.ec2c=false;
+const state={scn:'open',i:0,busy:false,playing:false,speed:1,launched:false,rr:0,cpu:{ec2a:12,ec2b:10,ec2c:0},token:0};
+let ctx={}, NODES={};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- scenarios ---------- */
+const ret=['@ec2','alb','cf','phone'];
+const SCN={
+  open:{n:1,label:'Open the app',q:'What happens when Ravi opens MediBook?',try:'Stop S3 website, or stop CloudFront, and play again.',steps:[
+    {path:['phone'],title:'Ravi opens MediBook',text:()=>'Ravi types medibook.example in his phone\'s browser and presses Go. This is a request: the phone is asking for the MediBook website.',t:['request'],wire:'Please give me: https://medibook.example'},
+    {path:['phone','dns'],title:'"Where does medibook.example live?"',text:()=>'Computers do not understand names. They need a number address, called an IP address. So the phone first asks Route 53, which is a DNS. DNS works like your phone contacts: name in, number out.',t:['dns','ip'],wire:'Question: what is the address of medibook.example?'},
+    {path:['dns','phone'],res:true,title:'Route 53 gives the number',text:()=>on.cf?'Route 53 replies with an IP address. This address belongs to CloudFront\'s building in Chennai, because Chennai is the closest one to Ravi. The phone remembers this number for some time, so it does not ask again on every tap.':'Route 53 replies with the address of the servers in Mumbai, because CloudFront is off.',wire:()=>on.cf?'Answer: 13.35.18.42  (CloudFront, Chennai)':'Answer: 13.233.10.5  (Mumbai)'},
+    {path:['phone','cf'],net:true,title:'The phone goes to CloudFront, with a lock',text:()=>'The phone now goes to that address. First, the phone and CloudFront agree on a lock, called HTTPS. From now on, everything that travels between them is scrambled, so nobody in between can read it.',t:['https','cdn'],wire:'Please give me the MediBook website files'},
+    {path:['cf','s3web'],title:'No copy in Chennai yet',text:()=>on.cf?'Ravi is the first person in Chennai to open MediBook today, so the Chennai building has no copy yet. CloudFront fetches the website from the S3 storage box in Mumbai, and keeps a copy for next time.':'Without CloudFront, the phone has to ask the storage box in Mumbai directly.',t:['cache','bucket','region'],wire:'Get: index.html, app.js, styles.css'},
+    {path:['s3web','cf'],res:true,title:'S3 sends the website files',text:()=>'S3 sends back the website: the page, the app\'s code and its colours.',wire:'index.html + app.js + styles.css  (310 KB)'},
+    {path:['cf','phone'],res:true,net:true,title:'The login page appears',text:()=>on.cf?'Ravi sees the MediBook login page. Now Chennai has a saved copy. When his friend in Chennai opens MediBook a minute later, CloudFront gives it straight away, without going to Mumbai. That is why a CDN makes apps fast.':'Ravi sees the login page, but it came all the way from Mumbai.',wire:'Here is the MediBook login page'}
+  ]},
+  login:{n:2,label:'Log in',q:'What happens when Ravi logs in?',try:'Stop Cognito, or switch off HTTPS, and play again.',steps:[
+    {path:['phone'],title:'Ravi types his email and password',text:()=>'Ravi types his email and password and taps Log in. The phone already knows CloudFront\'s address from before, so it does not ask DNS again.',t:['request'],wire:'Log me in:\n email: ravi@example.com\n password: ClinicDemo#2026'},
+    {path:['phone','cf'],net:true,title:'The password leaves the phone, locked',text:()=>'Before the password leaves the phone, HTTPS scrambles it. Someone on the same college WiFi could catch the data, but they would only see a jumble.',t:['https','encrypt'],wire:'Log me in: ravi@example.com / ClinicDemo#2026'},
+    {path:['cf','alb'],title:'CloudFront passes it to Mumbai',text:()=>'CloudFront cannot answer a login from a saved copy, because every login is different. So it passes the request to the load balancer in Mumbai.',t:['lb'],wire:'Log me in (passed on to Mumbai)'},
+    {path:['alb','@ec2'],title:'The load balancer picks a free server',text:()=>'We run two servers, EC2-A and EC2-B, so that if one fails, the other keeps working. '+ctx.lbNote+' The load balancer is in the public subnet. The servers are behind it, so the internet cannot reach them directly.',t:['ec2','health','subnet'],wire:()=>'Send to '+NODES[ctx.ec2].name},
+    {path:['@ec2','sm'],needs:['iam'],title:'The server gets the database password',text:()=>'Careful: this is not Ravi\'s password. This is the password the server needs to open the database. It is kept in a locker called Secrets Manager, never in the code. To open the locker, the server shows its IAM role, which is like an ID card. (In real life the server does this once when it starts, then remembers it.)',t:['secret','iam'],wire:'Open the locker "medibook/db-password"\nMy ID card: IAM role "medibook-server"'},
+    {path:['sm','@ec2'],res:true,title:'Locker opened',text:()=>'Secrets Manager checks the ID card and gives the database password. It stays only in the server\'s memory, not in any file.',wire:'Database password: ************'},
+    {path:['@ec2','cognito'],title:'Is Ravi\'s password correct?',text:()=>'The server asks Cognito, AWS\'s login system, to check the password. Cognito never saved Ravi\'s real password. It saved only a hash: a one-way jumble. Look at the picture below.',t:['hash'],wire:'Check: ravi@example.com + the password he typed',visual:()=>'<div class="visual"><div class="vt">How Cognito checks a password without knowing it</div><div>When Ravi signed up:</div><div class="flow"><span>ClinicDemo#2026</span><em>→</em><span class="mach">hash machine</span><em>→</em><span>5e8f 3a1c 9d07</span><em>saved</em></div><div>Today, he typed:</div><div class="flow"><span>ClinicDemo#2026</span><em>→</em><span class="mach">hash machine</span><em>→</em><span>5e8f 3a1c 9d07</span></div><div style="margin-top:4px">Same jumble, so the password is correct. A wrong password like <b>clinicdemo</b> gives a totally different jumble, like <b>b21c 77e0 4fa9</b>.</div></div>'},
+    {path:['cognito','@ec2'],res:true,title:'Correct! Cognito gives a token',text:()=>'The jumbles match. Cognito now gives Ravi a token: a digital pass that says "this is Ravi, he is a patient". It works for 1 hour. From now on, Ravi\'s phone shows this token on every tap, instead of sending the password again.',t:['token','group'],wire:'Token: eyJhbGciOiJSUzI1NiJ9.eyJ…\n  who: Ravi\n  role: patient\n  valid for: 1 hour',visual:()=>'<div class="visual"><div class="vt">The token is like a cinema ticket</div><div class="flow"><span>Pay at the counter</span><em>=</em><span>type your password once</span></div><div class="flow"><span>Get a ticket</span><em>=</em><span>get a token</span></div><div class="flow"><span>Show ticket at the door</span><em>=</em><span>phone shows token on every tap</span></div><div class="flow"><span>Valid for one show</span><em>=</em><span>token expires in 1 hour</span></div></div>'},
+    {path:['@ec2','rds'],title:'Get Ravi\'s details from the database',text:()=>'The server reads Ravi\'s name from the users table in the database. The database is in a private subnet, so it is hidden from the internet. Its security group, like a guard, lets in only our servers, only through door (port) 5432.',t:['db','sg','port'],wire:"Find the user with email ravi@example.com"},
+    {path:['rds','@ec2'],res:true,title:'Found Ravi',text:()=>'The database sends back Ravi\'s row.',wire:'id: 12   name: Ravi Kumar   role: patient'},
+    {path:['@ec2','cw'],soft:'cw',title:'Write it in the diary',text:()=>'The server writes a line in CloudWatch, the app\'s diary. If 50 wrong passwords come in one minute, CloudWatch can warn the team that someone is trying to break in.',t:['log','cloudwatch'],wire:'10:02  Ravi logged in'},
+    {path:ret,res:true,net:true,title:'Welcome, Ravi!',text:()=>'The answer travels back the same way: server, load balancer, CloudFront, phone. Ravi sees his dashboard. His phone keeps the token safely for the next tap.',wire:'Login OK. Here is your token. Welcome, Ravi Kumar!'}
+  ]},
+  book:{n:3,label:'Book appointment',q:'What happens when Ravi books an appointment?',try:'Stop EC2-A (the load balancer will use EC2-B), or stop SES.',steps:[
+    {path:['phone'],title:'Ravi books Dr. Asha Rao',text:()=>'Ravi picks Dr. Asha Rao, Monday 12 Oct, 10:30, and taps Book. This time the phone sends his token, not his password.',t:['token'],wire:'Book: Dr. Asha Rao, 12 Oct, 10:30\nMy token: eyJhbGci…'},
+    {path:['phone','cf','alb'],net:true,title:'Same road as login',text:()=>'Locked with HTTPS, through CloudFront, into the load balancer.',wire:'Book: Dr. Asha Rao, 12 Oct, 10:30'},
+    {path:['alb','@ec2'],title:'The load balancer picks a server',text:()=>ctx.lbNote,t:['lb','health'],wire:()=>'Send to '+NODES[ctx.ec2].name},
+    {path:['@ec2'],title:'The server checks the rules',text:()=>'First, is the token real and not expired? Then the rules: Is Ravi a patient? Is 10:30 still free? Is the date in the future? Only if every answer is yes does the booking go ahead.',t:['group'],wire:'Token: real, Ravi, patient  ✓\n10:30 free  ✓\nIn the future  ✓'},
+    {path:['@ec2','rds'],title:'Save the booking',text:()=>'The server adds a new row to the appointments table. It grabs the slot in one single step, so if two patients tap Book at the same second, only one of them gets 10:30.',t:['db'],wire:'New row in appointments:\nRavi | Dr. Asha Rao | 12 Oct | 10:30'},
+    {path:['rds','@ec2'],res:true,title:'Saved safely',text:()=>'The database confirms. Even if this server crashes now, the booking is safe, because it lives in the database, not on the server. RDS also takes a backup every day.',wire:'Saved. Booking number 241'},
+    {path:['@ec2','ses'],soft:'ses',title:'Send a confirmation email',text:()=>'The server asks SES to email Ravi.',t:['email'],wire:'To: ravi@example.com\nSubject: Appointment confirmed, Mon 12 Oct, 10:30'},
+    {path:['@ec2','cw'],soft:'cw',title:'Write it in the diary',text:()=>'The booking is written in CloudWatch\'s diary.',t:['log'],wire:'10:05  booking 241 created by Ravi'},
+    {path:ret,res:true,net:true,title:'Booked!',text:()=>'Ravi sees "Appointment confirmed". When Dr. Asha logs in, she sees this booking in her list, because her screen reads the same appointments table.',wire:'Booked! Booking number 241'}
+  ]},
+  upload:{n:4,label:'Upload report',q:'Where does Ravi\'s report go?',try:'Stop the IAM role, or stop S3 reports, and play again.',steps:[
+    {path:['phone'],title:'Ravi uploads a blood test',text:()=>'Ravi picks the file blood-test.pdf (420 KB) and taps Upload.',wire:'Upload: blood-test.pdf (420 KB)\nMy token: eyJhbGci…'},
+    {path:['phone','cf','alb','@ec2'],net:true,title:'The file travels to a server',text:()=>'The file travels locked, through CloudFront and the load balancer, to '+NODES[ctx.ec2].name+'. '+(ctx.lbSkip||''),wire:'420 KB of PDF'},
+    {path:['@ec2'],title:'The server checks the file',text:()=>'Is it a PDF or a photo? Is it smaller than 5 MB? It also gives the file a new random name, so nobody can trick the server into replacing someone else\'s file.',wire:'Type: PDF  ✓\nSize: 420 KB  ✓\nNew name: k3x9.pdf'},
+    {path:['@ec2','s3rep'],needs:['iam'],title:'Store it in the private S3 box',text:()=>'Files do not go into the database. They go into an S3 bucket, a storage box. This box is private: nobody can open a file just by guessing its link. The server is allowed in only because of its IAM role (its ID card).',t:['bucket','iam'],wire:'Save into box "medibook-reports":\nreports/ravi/k3x9.pdf\nMy ID card: IAM role "medibook-server"'},
+    {path:['@ec2','rds'],title:'Note it in the database',text:()=>'The database stores only the details: whose file it is, its title, and where it is kept in S3. Think of it as the library register, while S3 is the shelf.',t:['db'],wire:'New row in reports:\nRavi | Blood test | reports/ravi/k3x9.pdf'},
+    {path:ret,res:true,net:true,title:'Uploaded',text:()=>'Ravi sees "Blood test" in his reports list.',wire:'Uploaded!'},
+    {path:['@ec2','s3rep'],needs:['iam'],title:'Later: Dr. Asha opens the report',text:()=>'When Dr. Asha taps the report, the server first checks that she really treats Ravi. Then it asks S3 for a special link that works for only 5 minutes.',t:['presigned'],wire:'Make a link to reports/ravi/k3x9.pdf\nvalid for 5 minutes'},
+    {path:['s3rep','phone'],res:true,net:true,title:'The file comes straight from S3',text:()=>'The PDF goes straight from S3 to the doctor\'s phone. The server does not have to carry the file. After 5 minutes the link stops working, so a forwarded link is useless.',wire:'blood-test.pdf (420 KB)'}
+  ]},
+  forgot:{n:5,label:'Forgot password',q:'How does a reset code reach Ravi?',try:'Stop SES and play again.',steps:[
+    {path:['phone'],title:'Ravi forgot his password',text:()=>'Ravi taps "Forgot password" and types his email.',wire:'I forgot my password: ravi@example.com'},
+    {path:['phone','cf','alb','@ec2'],net:true,title:'Up to a server',text:()=>'Same road: HTTPS lock, CloudFront, load balancer, server. '+(ctx.lbSkip||''),wire:'I forgot my password: ravi@example.com'},
+    {path:['@ec2','cognito'],title:'The server asks Cognito',text:()=>'The server asks Cognito to start a reset. The app always says "If this email is registered, we sent a code", even when the email is not registered. Why? So a stranger cannot use this page to find out who has an account.',wire:'Start a password reset for ravi@example.com'},
+    {path:['cognito','ses'],title:'Cognito makes a code, SES sends it',text:()=>'Cognito makes a 6-digit code that works for only a short time, and asks SES to email it.',t:['email'],wire:'To: ravi@example.com\nYour MediBook reset code: 482913'},
+    {path:['ses','phone'],res:true,title:'The email arrives',text:()=>'The email lands in Ravi\'s Gmail. He types the code and picks a new password. Cognito saves the hash of the new password, never the password itself.',t:['hash'],wire:'Inbox: Your MediBook reset code is 482913'}
+  ]},
+  rush:{n:6,label:'Rush hour',q:'What happens when 1,000 patients come at once?',try:'Stop CloudWatch, or stop Auto Scaling, and play again.',steps:[
+    {path:['phone'],title:'9 AM: 1,000 patients at once',text:()=>'A free health camp is announced on Instagram. At exactly 9 AM, 1,000 patients open MediBook to grab a slot.',wire:'1,000 people tapping at the same time',pre:()=>label('phone','1,000 phones')},
+    {burst:true,title:'The load balancer shares the crowd',text:()=>{const h=healthy();return 'The load balancer splits the patients between '+h.map(n=>NODES[n].name).join(' and ')+'. Look at the CPU bars under the servers. They are working very hard.';},t:['lb','cpu'],wire:()=>{const h=healthy();return h.map(n=>NODES[n].name+': about '+Math.round(1000/h.length)+' patients').join('\n')}},
+    {needSvc:'cw',title:'CloudWatch notices and rings the alarm',text:()=>'The servers are at '+state.cpu[healthy()[0]]+'% CPU. CloudWatch is watching, and we gave it a rule: "If CPU stays above 60% for 2 minutes, ring the alarm". The alarm rings.',t:['cloudwatch'],wire:'ALARM: servers too busy\nCPU above 60% for 2 minutes'},
+    {path:['cw','asg'],title:'The alarm wakes up Auto Scaling',text:()=>'The alarm is connected to Auto Scaling, with one rule: when the alarm rings, add one more server.',t:['autoscale'],wire:'Add 1 server (2 → 3)'},
+    {path:['asg','ec2c'],custom:'launch',title:'Auto Scaling starts EC2-C',text:()=>'Auto Scaling starts a new server, an exact copy with the same MediBook code. In about a minute it is ready.',wire:'Start EC2-C (copy of the MediBook server)'},
+    {path:['alb','ec2c'],custom:'spread',title:'Now three servers share the work',text:()=>'Once EC2-C passes its health check, the load balancer starts sending patients to it too. Look at the CPU bars: every server is calmer now.',t:['health'],wire:()=>healthy().map(n=>NODES[n].name+': '+state.cpu[n]+'% CPU').join('\n')},
+    {path:['asg','ec2c'],custom:'shrink',title:'11 AM: rush over, EC2-C goes away',text:()=>'The crowd has gone and CPU is low again, so Auto Scaling removes EC2-C. We paid for the extra server for only two hours.',wire:'Remove 1 server (3 → 2)'}
+  ]},
+  whole:{n:7,label:'Whole architecture',q:'The full MediBook on AWS, in one go',try:'Stop any service and play again. Every box matters.',steps:[
+    {path:['phone'],title:'The whole picture',text:()=>'This is everything from the six actions, in one map. Let\'s follow Ravi through a full visit, quickly.',wire:'Open → log in → book → upload'},
+    {path:['phone','dns'],title:'1. Find the address',text:()=>'DNS (Route 53) turns medibook.example into a number address.',t:['dns']},
+    {path:['dns','phone'],res:true,title:'Address found',text:()=>'The phone now knows where to go.'},
+    {path:['phone','cf','s3web'],net:true,title:'2. Get the website',text:()=>'With an HTTPS lock, the phone asks CloudFront. CloudFront gives a nearby copy, or fetches the files from S3.',t:['cdn']},
+    {path:['s3web','cf','phone'],res:true,net:true,title:'The app opens',text:()=>'The login page appears.'},
+    {path:['phone','cf','alb','@ec2'],net:true,title:'3. Log in',text:()=>'The login goes through CloudFront to the load balancer, which picks a free server. '+(ctx.lbSkip||''),t:['lb']},
+    {path:['@ec2','cognito'],title:'Check the password',text:()=>'Cognito compares hashes and gives Ravi a token, his digital pass for the next hour.',t:['hash','token']},
+    {path:['@ec2','sm'],needs:['iam'],title:'Open the database',text:()=>'The server gets the database password from Secrets Manager, using its IAM role as an ID card.',t:['secret','iam']},
+    {path:['@ec2','rds'],title:'4. Book: save in the database',text:()=>'The booking is saved as a new row in RDS, inside the private subnet.',t:['db','subnet']},
+    {path:['@ec2','s3rep'],needs:['iam'],title:'5. Upload: save the file',text:()=>'The blood test PDF goes into the private S3 box.',t:['bucket']},
+    {path:['@ec2','ses'],soft:'ses',title:'Send an email',text:()=>'SES emails Ravi his booking confirmation.'},
+    {path:['@ec2','cw'],soft:'cw',title:'Watch everything',text:()=>'CloudWatch keeps the diary and watches CPU. If it gets busy, it tells Auto Scaling to add a server.',t:['cloudwatch','autoscale']},
+    {path:ret,res:true,net:true,title:'That is MediBook on AWS',text:()=>'Every box in this map has one clear job. Together, they make an app that is fast, safe, and keeps working even when something fails.'}
+  ]}
+};
+
+/* ---------- build SVG ---------- */
+const svg=document.getElementById('map');
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function txt(parent,x,y,cls,s,anchor){const t=el('text',{x,y,class:cls},parent);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t;}
+let Lz,Lw,Lh,Ln,Lp,packet;
+
+function bbox(ids,px,pt,pb){
+  const ns=ids.filter(i=>NODES[i]); if(!ns.length) return null;
+  let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+  ns.forEach(i=>{const n=NODES[i]; x1=Math.min(x1,n.x-W/2); x2=Math.max(x2,n.x+W/2); y1=Math.min(y1,n.y-H/2); y2=Math.max(y2,n.y+H/2+(n.cpu?18:0));});
+  return {x:x1-px,y:y1-pt,w:x2-x1+2*px,h:y2-y1+pt+pb};
+}
+function union(a,b,p,pt){const bs=[a,b].filter(Boolean); if(!bs.length) return null; const x1=Math.min(...bs.map(r=>r.x)),y1=Math.min(...bs.map(r=>r.y)),x2=Math.max(...bs.map(r=>r.x+r.w)),y2=Math.max(...bs.map(r=>r.y+r.h)); return {x:x1-p,y:y1-pt,w:x2-x1+2*p,h:y2-y1+pt+p};}
+function rect(r,cls,parent){return el('rect',{x:r.x,y:r.y,width:r.w,height:r.h,rx:12,class:cls},parent);}
+
+function buildMap(){
+  const L=LAYOUTS[state.scn];
+  svg.innerHTML=''; svg.setAttribute('viewBox','0 0 1080 '+L.h);
+  NODES={}; for(const [id,[x,y]] of Object.entries(L.pos)) NODES[id]={...BASE[id],x,y};
+  Lz=el('g',{},svg); Lw=el('g',{},svg); Lh=el('g',{},svg); Ln=el('g',{},svg); Lp=el('g',{},svg);
+  // zones
+  const ids=Object.keys(NODES), Z=z=>ids.filter(i=>NODES[i].zone===z);
+  const subs=[['pub','Public subnet','subnet'],['app','App subnet (servers)','subnet'],['db','Private subnet (database)','dbnet']].map(([z,l,c])=>({b:bbox(Z(z),12,34,12),l,c})).filter(s=>s.b);
+  if(subs.length){const top=Math.min(...subs.map(s=>s.b.y)), bot=Math.max(...subs.map(s=>s.b.y+s.b.h)); subs.forEach(s=>{s.b.y=top; s.b.h=bot-top;});}
+  let vpc=null; subs.forEach(s=>vpc=union(vpc,s.b,0,0));
+  if(vpc){vpc={x:vpc.x-10,y:vpc.y-30,w:vpc.w+20,h:vpc.h+40};}
+  const managed=bbox(Z('aws'),0,0,0);
+  const region=union(vpc,managed,16,vpc?34:52);
+  const edge=bbox(Z('edge'),16,44,16);
+  if(edge){rect(edge,'zone',Lz); txt(Lz,edge.x+12,edge.y+20,'zl','AWS worldwide'); txt(Lz,edge.x+12,edge.y+34,'zs','close to every user');}
+  if(region){rect(region,'region',Lz); txt(Lz,region.x+12,region.y+20,'zl','AWS Mumbai region');}
+  if(vpc){rect(vpc,'vpc',Lz); txt(Lz,vpc.x+12,vpc.y+19,'zl','VPC: our private network');}
+  subs.forEach(s=>{rect(s.b,s.c,Lz); txt(Lz,s.b.x+8,s.b.y+18,'zs',s.l);});
+  if(vpc&&managed) txt(Lz,managed.x,managed.y-14,'zl','AWS services');
+  if(NODES.rds){const r=subs.find(s=>s.c==='dbnet').b; txt(Lz,r.x+8,r.y+r.h-26,'zs','Guard: only our servers,'); txt(Lz,r.x+8,r.y+r.h-12,'zs','door (port) 5432');}
+  txt(Lz,NODES.phone.x-W/2,NODES.phone.y-H/2-24,'zl','The internet');
+  txt(Lz,NODES.phone.x-W/2,NODES.phone.y-H/2-10,'zs','phone on WiFi or 4G');
+  L.links.forEach(([a,b])=>el('line',{x1:NODES[a].x,y1:NODES[a].y,x2:NODES[b].x,y2:NODES[b].y,class:'wire-line'},Lw));
+  for(const [id,n] of Object.entries(NODES)){
+    const g=el('g',{class:'node','data-id':id,transform:`translate(${n.x-W/2},${n.y-H/2})`,tabindex:'0',role:'button','aria-label':n.name+', '+n.role},Ln);
+    el('rect',{width:W,height:H,rx:10,class:'node-box'},g);
+    const ic=el('g',{transform:'translate(24,27)'},g);
+    el('circle',{r:15,class:'ic ic-'+n.cat},ic);
+    const it=txt(ic,0,0,'ic-t',n.abbr,'middle'); it.setAttribute('dy','0.35em');
+    n.nameEl=txt(g,46,24,'n-name',n.name);
+    n.roleEl=txt(g,46,41,'n-role',n.role);
+    if(n.cpu&&(state.scn==='rush'||state.scn==='whole')){
+      el('rect',{x:46,y:H+6,width:70,height:6,rx:3,class:'cpu-bg'},g);
+      n.cpuBar=el('rect',{x:46,y:H+6,width:0,height:6,rx:3,class:'cpu-fg'},g);
+      n.cpuT=txt(g,0,H+12,'cpu-t','');
+    }
+    n.g=g;
+    const pick=()=>showInfo(id);
+    g.addEventListener('click',pick);
+    g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});
+  }
+  packet=el('circle',{r:9,class:'packet req',cx:0,cy:0,style:'display:none'},Lp);
+  buildSwitches();
+}
+function label(id,s){if(NODES[id]) NODES[id].nameEl.textContent=s;}
+
+function paint(){
+  for(const [id,n] of Object.entries(NODES)){
+    const off=n.svc&&id!=='ec2c'&&!on[n.svc];
+    n.g.classList.toggle('off',!!off);
+    n.g.classList.toggle('ghost',id==='ec2c'&&!state.launched);
+    n.roleEl.textContent=off?'STOPPED':(id==='ec2c'&&!state.launched?'not running yet':n.role);
+    if(n.cpuBar){
+      const running=id==='ec2c'?state.launched:on[id];
+      const v=running?state.cpu[id]:0;
+      n.cpuBar.setAttribute('width',(70*v/100).toFixed(1));
+      n.cpuBar.setAttribute('class','cpu-fg'+(v>=95?' max':v>=60?' hot':''));
+      n.cpuT.textContent='CPU '+v+'%';
+    }
+  }
+  document.querySelectorAll('.row').forEach(r=>{
+    const id=r.dataset.id; r.classList.toggle('off',!on[id]);
+    const b=r.querySelector('.tg'); b.textContent=on[id]?'Stop':'Start'; b.setAttribute('aria-label',(on[id]?'Stop ':'Start ')+SVCROWS[id][0]);
+  });
+}
+
+/* ---------- switches + tabs ---------- */
+function buildSwitches(){
+  const sw=document.getElementById('sw'); sw.innerHTML='';
+  const ids=Object.keys(NODES).map(i=>NODES[i].svc).filter(s=>s&&s!=='ec2c');
+  if(NODES.cf) ids.splice(1,0,'https');
+  ids.forEach(id=>{
+    const r=document.createElement('div'); r.className='row'; r.dataset.id=id;
+    r.innerHTML='<span class="dot" aria-hidden="true"></span><span class="nm"><b>'+SVCROWS[id][0]+'</b><span>'+SVCROWS[id][1]+'</span></span><button class="tg" id="tg-'+id+'">Stop</button>';
+    r.querySelector('.tg').addEventListener('click',()=>{on[id]=!on[id]; paint(); showInfo(id); restart(false);});
+    sw.appendChild(r);
+  });
+}
+document.getElementById('allon').addEventListener('click',()=>{Object.keys(on).forEach(k=>{if(k!=='ec2c')on[k]=true;}); restart(false);});
+
+const tabs=document.getElementById('tabs');
+Object.entries(SCN).forEach(([id,s])=>{
+  const b=document.createElement('button'); b.className='tab'; b.setAttribute('role','tab'); b.id='tab-'+id; b.innerHTML='<b>'+s.n+'</b>'+s.label;
+  b.addEventListener('click',()=>{ state.scn=id; buildMap(); restart(false); showInfo(Object.keys(NODES)[1]); });
+  tabs.appendChild(b);
+});
+
+/* ---------- info + glossary ---------- */
+function showInfo(key){
+  const k=key==='ec2b'?'ec2a':key; const i=INFO[k]; if(!i) return;
+  document.querySelectorAll('.node.sel').forEach(n=>n.classList.remove('sel'));
+  if(NODES[key]) NODES[key].g.classList.add('sel');
+  document.getElementById('info').innerHTML='<div class="eyebrow">About this box</div><h3>'+i.t+'</h3><dl><dt>What it does</dt><dd>'+i.what+'</dd><dt>Example</dt><dd>'+i.ex+'</dd>'+(i.off?'<dt>If it stops</dt><dd>'+i.off+'</dd>':'')+'</dl>';
+}
+document.getElementById('ggrid').innerHTML=Object.values(G).map(g=>'<div class="gcard"><h3>'+g.t+'</h3><p>'+g.m+'</p><p class="ex">Example: '+g.e+'</p></div>').join('');
+
+/* ---------- engine ---------- */
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function healthy(){return ['ec2a','ec2b','ec2c'].filter(id=>NODES[id]&&(id==='ec2c'?state.launched:on[id]));}
+function pickEc2(){
+  const h=healthy(); if(!h.length) return null;
+  const stopped=['ec2a','ec2b'].filter(id=>!on[id]);
+  const id=h[state.rr++%h.length];
+  ctx.lbSkip=stopped.length?stopped.map(s=>NODES[s].name).join(' and ')+' is stopped, so the load balancer skips it.':'';
+  ctx.lbNote=(ctx.lbSkip?ctx.lbSkip+' ':'')+'It checks which servers are healthy and sends Ravi to '+NODES[id].name+'.';
+  return id;
+}
+function hop(a,b,o={}){
+  return new Promise(res=>{
+    const A=NODES[a],B=NODES[b], cls=o.bad?'bad':o.res?'res':'req';
+    const ay=A.y-H/2, by=B.y-H/2;
+    const line=el('line',{x1:A.x,y1:ay,x2:B.x,y2:by,class:'hop '+cls},Lh);
+    const dot=o.dot||packet; dot.setAttribute('class','packet '+cls); dot.style.display='';
+    const dur=o.instant?0:(reduce?150:Math.max(280,Math.hypot(B.x-A.x,B.y-A.y)*2.6)/state.speed);
+    const t0=performance.now();
+    const f=t=>{const p=dur?Math.min(1,(t-t0)/dur):1; const e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+      dot.setAttribute('cx',A.x+(B.x-A.x)*e); dot.setAttribute('cy',ay+(by-ay)*e);
+      if(p<1) requestAnimationFrame(f); else {setTimeout(()=>line.remove(),o.instant?0:350); res();}};
+    requestAnimationFrame(f);
+  });
+}
+function park(id){const n=NODES[id]; packet.setAttribute('cx',n.x); packet.setAttribute('cy',n.y-H/2); packet.style.display='';}
+function focusNode(id){ if(!NODES[id]) return; NODES[id].g.classList.add('active'); showInfo(id); }
+function clearMarks(){document.querySelectorAll('.node.active,.node.failed').forEach(n=>n.classList.remove('active','failed'));}
+function resolvePath(path){
+  const out=[]; let fail=null, cfSkipped=false;
+  for(let id of path){
+    if(id==='cf'&&!on.cf){id='phone'; cfSkipped=true;}
+    if(id==='@ec2'){ if(!ctx.ec2){const r=pickEc2(); if(!r){fail='ec2none'; break;} ctx.ec2=r;} id=ctx.ec2; }
+    if(out[out.length-1]!==id) out.push(id);
+  }
+  return {out,fail,cfSkipped};
+}
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function wordsHtml(s){ if(!s.t||!s.t.length) return ''; return '<div class="words"><h4>New words in this step</h4>'+s.t.map(k=>'<div class="word"><b>'+G[k].t+':</b> '+G[k].m+'<span class="ex">Example: '+G[k].e+'</span></div>').join('')+'</div>'; }
+function renderNarr(s,idx,total,extra){
+  const N=document.getElementById('narr');
+  const w=typeof s.wire==='function'?s.wire():s.wire; let wire='';
+  if(w){
+    if(s.net&&!on.https) wire='<div class="wire"><span class="lbl">What a stranger on the WiFi sees<span class="chip bad">Not locked</span></span>'+esc(w)+'</div>';
+    else if(s.net) wire='<div class="wire"><span class="lbl">What a stranger on the WiFi sees<span class="chip ok">Locked by HTTPS</span></span>16 03 03 9a 7f e2 41 c8 0d 5b 93 af 21 6e d4 …</div><div class="wire"><span class="lbl">What the receiver reads</span>'+esc(w)+'</div>';
+    else wire='<div class="wire"><span class="lbl">'+(s.res?'The answer':'What is being sent')+'</span>'+esc(w)+'</div>';
+  }
+  N.innerHTML='<div class="eyebrow">'+SCN[state.scn].label+' · step '+(idx+1)+' of '+total+'</div><h2>'+s.title+'</h2><p>'+s.text()+'</p>'+(extra||'')+(s.visual?s.visual():'')+wire+wordsHtml(s);
+}
+function renderFail(svc,idx,total,atId){
+  showInfo(svc==='ec2none'?'alb':(INFO[svc]&&NODES[svc]?svc:atId)); if(NODES[atId]) NODES[atId].g.classList.add('sel');
+  const N=document.getElementById('narr');
+  const fix=svc==='ec2none'?'ec2a':svc;
+  N.innerHTML='<div class="eyebrow">'+SCN[state.scn].label+' · step '+(idx+1)+' of '+total+'</div><h2>Stopped at '+NODES[atId].name+'</h2><div class="note bad">'+FAIL[svc]+'</div><p style="margin-top:10px">This is why real apps keep two of everything important, and watch it all with alarms.</p><button class="btn" id="fixbtn">Start '+SVCROWS[fix][0]+' and play again</button>';
+  document.getElementById('fixbtn').addEventListener('click',()=>{on[fix]=true; restart(true);});
+}
+function renderIntro(){
+  const s=SCN[state.scn];
+  document.getElementById('narr').innerHTML='<div class="eyebrow">'+s.n+'. '+s.label+' · '+s.steps.length+' steps</div><h2>'+s.q+'</h2><p>Press <b>Play</b> to watch it all, or <b>Next step</b> to go one step at a time. New words are explained at every step.</p>';
+}
+function renderDone(){ document.getElementById('narr').insertAdjacentHTML('beforeend','<div class="note ok"><b>Done.</b> Now try this: '+SCN[state.scn].try+'</div>'); }
+
+async function runStep(idx,instant){
+  const S=SCN[state.scn], s=S.steps[idx], total=S.steps.length;
+  clearMarks();
+  if(s.pre) s.pre();
+  if(s.burst){
+    const h=healthy();
+    if(!on.alb){ await hop('phone','alb',{instant,bad:true}); NODES.alb.g.classList.add('failed'); renderFail('alb',idx,total,'alb'); return false; }
+    if(!h.length){ await hop('phone','alb',{instant}); NODES.alb.g.classList.add('failed'); renderFail('ec2none',idx,total,'alb'); return false; }
+    const extra=!on.cf?'<div class="note warn">'+WARN.cf+'</div>':'';
+    renderNarr(s,idx,total,extra);
+    const n=instant?1:9, dots=[];
+    for(let k=0;k<n;k++) dots.push(el('circle',{r:6,class:'packet req',cx:NODES.phone.x,cy:NODES.phone.y-H/2},Lp));
+    await Promise.all(dots.map(async(d,k)=>{ await sleep(instant?0:k*110/state.speed); const via=on.cf?['phone','cf','alb']:['phone','alb']; for(let j=1;j<via.length;j++) await hop(via[j-1],via[j],{dot:d,instant}); await hop('alb',h[k%h.length],{dot:d,instant}); d.remove(); }));
+    h.forEach(id=>state.cpu[id]=Math.min(100,Math.round(170/h.length))); paint();
+    park(h[0]); focusNode('alb'); renderNarr(s,idx,total,extra); return true;
+  }
+  if(s.needSvc==='cw'){
+    const src=healthy()[0];
+    renderNarr(s,idx,total);
+    await hop(src,'cw',{instant,bad:!on.cw});
+    if(!on.cw){ NODES.cw.g.classList.add('failed'); healthy().forEach(id=>state.cpu[id]=100); paint(); renderFail('cw',idx,total,'cw'); return false; }
+    focusNode('cw'); return true;
+  }
+  if(s.custom||(state.scn==='rush'&&s.path[1]==='asg')){
+    const [a,b]=s.path;
+    if(!on.asg){ renderNarr(s,idx,total); await hop(a,b,{instant,bad:true}); NODES.asg.g.classList.add('failed'); healthy().forEach(id=>state.cpu[id]=100); paint(); renderFail('asg',idx,total,'asg'); return false; }
+    renderNarr(s,idx,total);
+    await hop(a,b,{instant});
+    if(s.custom==='launch'){ state.launched=true; state.cpu.ec2c=5; paint(); }
+    if(s.custom==='spread'){ const h=healthy(); h.forEach(id=>state.cpu[id]=Math.round(170/h.length)); paint(); renderNarr(s,idx,total); }
+    if(s.custom==='shrink'){ state.launched=false; state.cpu.ec2c=0; ['ec2a','ec2b'].forEach(id=>state.cpu[id]=14); label('phone',"Ravi's phone"); paint(); }
+    park(b); focusNode(b); return true;
+  }
+  const r=resolvePath(s.path), p=r.out;
+  if(r.fail){
+    for(let k=1;k<p.length;k++) await hop(p[k-1],p[k],{instant});
+    park('alb'); NODES.alb.g.classList.add('failed'); renderFail(r.fail,idx,total,'alb'); return false;
+  }
+  const warns=[];
+  if(r.cfSkipped) warns.push(WARN.cf);
+  if(s.net&&!on.https) warns.push(WARN.https);
+  if(s.soft&&!on[s.soft]) warns.push(WARN[s.soft]);
+  renderNarr(s,idx,total,warns.map(w=>'<div class="note warn">'+w+'</div>').join(''));
+  if(p.length===1){ park(p[0]); focusNode(p[0]); return true; }
+  for(let k=1;k<p.length;k++){
+    const a=p[k-1], b=p[k], nb=NODES[b];
+    const dead=nb.svc&&nb.svc!=='ec2c'&&!on[nb.svc]&&s.soft!==nb.svc;
+    const needMiss=(k===p.length-1&&s.needs)?s.needs.find(x=>!on[x]):null;
+    await hop(a,b,{instant,res:!!s.res,bad:dead||!!needMiss||(s.soft===nb.svc&&!on[nb.svc])});
+    if(dead){ nb.g.classList.add('failed'); renderFail(nb.svc,idx,total,b); return false; }
+    if(needMiss){ nb.g.classList.add('failed'); if(NODES[needMiss]) NODES[needMiss].g.classList.add('failed'); renderFail(needMiss,idx,total,b); return false; }
+    if(s.soft===nb.svc&&!on[nb.svc]) nb.g.classList.add('failed');
+  }
+  focusNode(p[p.length-1]);
+  return true;
+}
+
+function setBusy(b){state.busy=b; document.getElementById('next').disabled=b; document.getElementById('back').disabled=b||state.i===0;
+  const steps=SCN[state.scn].steps.length; document.getElementById('play').textContent=state.playing?'Pause':(state.i>0&&state.i<steps&&!state.failed?'Continue':'Play');}
+async function play(){
+  if(state.playing){state.playing=false; setBusy(state.busy); return;}
+  const steps=SCN[state.scn].steps;
+  if(state.i>=steps.length||state.failed) restart(false);
+  state.playing=true; setBusy(true); const tok=state.token;
+  while(state.playing&&state.i<steps.length){
+    const ok=await runStep(state.i,false); if(tok!==state.token) return; state.i++;
+    if(!ok){state.failed=true; state.playing=false; break;}
+    if(state.i<steps.length&&state.playing) await sleep((reduce?800:2600)/state.speed);
+    if(tok!==state.token) return;
+  }
+  if(state.i>=steps.length&&!state.failed) renderDone();
+  state.playing=false; setBusy(false);
+}
+async function next(){
+  const steps=SCN[state.scn].steps;
+  if(state.busy) return;
+  if(state.i>=steps.length||state.failed) restart(false);
+  setBusy(true); const tok=state.token; const ok=await runStep(state.i,false); if(tok!==state.token) return; state.i++;
+  if(!ok) state.failed=true; else if(state.i>=steps.length) renderDone();
+  setBusy(false);
+}
+async function back(){
+  if(state.busy) return;
+  if(state.i<=1){ restart(false); return; }
+  const target=state.i-2; restart(false); setBusy(true); const tok=state.token;
+  for(let k=0;k<=target;k++){ const ok=await runStep(k,true); if(tok!==state.token) return; state.i++; if(!ok){state.failed=true;break;} }
+  setBusy(false);
+}
+function restart(autoplay){
+  state.token++; state.playing=false; state.i=0; state.failed=false; state.launched=false;
+  state.cpu={ec2a:12,ec2b:10,ec2c:0}; ctx={}; label('phone',"Ravi's phone");
+  Lh.innerHTML=''; Array.from(Lp.querySelectorAll('circle')).forEach(c=>{if(c!==packet)c.remove();});
+  clearMarks(); packet.style.display='none'; paint();
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',String(t.id==='tab-'+state.scn)));
+  renderIntro(); setBusy(false);
+  if(autoplay) setTimeout(play,50);
+}
+
+document.getElementById('play').addEventListener('click',play);
+document.getElementById('next').addEventListener('click',next);
+document.getElementById('back').addEventListener('click',back);
+document.getElementById('reset').addEventListener('click',()=>restart(false));
+document.getElementById('speed').addEventListener('input',e=>state.speed=+e.target.value);
+
+buildMap(); restart(false); showInfo('dns');
+</script>
